@@ -1,74 +1,56 @@
-# Real-Time Auction API
+# ⚡ Lightning Bids V1 - Real-Time Auction Engine
+A high-performance, real-time auction bidding engine built with **Spring Boot 3**, **PostgreSQL**, and **STOMP WebSockets**.
 
-A robust, enterprise-grade Real-Time Bidding and Auction API engine built with Java and Spring Boot. This portfolio-ready application maps Node.js/Express architectural concepts to the Spring Boot ecosystem, demonstrating advanced backend patterns for high-concurrency environments.
-
-## 🚀 Key Features
-
-*   **Real-Time Bidding via WebSockets:** Push real-time bid updates to all connected clients instantly.
-*   **Zero-Conflict Transactions:** Strict database transaction management using Optimistic/Pessimistic locking to handle concurrent bid requests without race conditions.
-*   **Secure Stateless Auth:** JWT-based authentication (`JwtAuthenticationFilter`) for securing endpoints and managing user sessions.
-*   **Relational Data Integrity:** Built with Spring Data JPA and Hibernate, configured for PostgreSQL.
-
-## 🛠️ Tech Stack
-
-*   **Language:** Java (JDK 21)
-*   **Framework:** Spring Boot
-*   **Database:** PostgreSQL (Port `5432`)
-*   **ORM:** Hibernate / Spring Data JPA
-*   **Build Tool:** Maven
+## 🏗️ Architecture & System Design
+This application is built using **Clean Architecture** (Controller-Service-Repository) and is explicitly engineered to handle extreme concurrency and prevent data-loss race collisions.
+- **REST API:** Handles immutable state requests and authenticated order execution (`POST /api/auctions/{id}/bid`).
+- **Security:** Stateless **JWT authentication** managed universally via a custom Spring Security filter chain.
+- **Concurrency Control:** Utilizes strict **PostgreSQL Optimistic Locking (`@Version`)** to guarantee database isolation. If 1,000 users submit a bid at the exact same millisecond, 1 transaction securely commits while the backend physically intercepts the remaining 999, throwing a precise `ObjectOptimisticLockingFailureException` and returning clean HTTP `409 Conflict` rejections.
+- **Real-Time Engine:** Uses Spring **STOMP WebSockets** (`/ws`) natively functioning as a one-way megaphone to broadcast successful transactions instantly across all connected client nodes.
 
 ---
 
-## 💻 Getting Started
-
-Follow these instructions to set up the project on your local machine.
+## 🚀 Getting Started Locally
 
 ### Prerequisites
+- Java 21+
+- Maven
+- Docker
 
-Ensure you have the following installed before starting:
-1.  [Java Development Kit (JDK 21)](https://adoptium.net/)
-2.  [Apache Maven](https://maven.apache.org/) (or use the included `mvnw` wrapper)
-3.  [PostgreSQL](https://www.postgresql.org/download/) (running on the default port `5432`)
-
-### 1. Database Setup
-
-You need a running PostgreSQL database for the application to connect to. 
-1. Open pgAdmin or your terminal.
-2. Create a new database for the application:
-   ```sql
-   CREATE DATABASE auction_db;
-   ```
-*(If your local Postgres uses a custom username/password, update them in the `src/main/resources/application.properties` file).*
-
-### 2. Clone the Repository
-
+### 1. Start the Database
+Run the local PostgreSQL instance securely via Docker:
 ```bash
-git clone https://github.com/YOUR_USERNAME/auction-api.git
-cd auction-api
+docker-compose up -d
 ```
 
-### 3. Build & Run the Application
-
-You can run the application directly using Maven:
-
+### 2. Boot the Application
+The `application.properties` is configured by default to aggressively drop the database tables and securely seed fresh test data upon every initialization.
 ```bash
-# Clean and compile the project
-mvn clean install
-
-# Run the Spring Boot application
 mvn spring-boot:run
 ```
 
-If successful, the API runs on `http://localhost:8080`.
+### 3. Concurrency Stress Test (The Frontend)
+Navigate to `http://localhost:8080` to access the vanilla JS/CSS **High-Frequency Execution Desk**. 
+
+Register a quick test account, select the active auction, and click the **🚀 STRESS TEST** button to forcefully fire 50 concurrent fetch requests into the exact same millisecond window. The local UI terminal will tally the precise number of transactions that successfully won the underlying lock vs those intercepted by the database engine.
 
 ---
 
-## 📡 API Architecture Highlights
+## ☁️ Deployment Guide (Railway)
+This application supports seamless environment variable injection for CI/CD production deployment.
 
-This API demonstrates:
-1.  **Concurrency Control:** Ensuring that if 1,000 users bid on an item at the exact same millisecond, the database handles the locks perfectly without losing or duplicating data.
-2.  **Spring Security Integration:** Securing routes seamlessly while integrating custom `UserDetailsServiceImpl` for database-backed user validation.
-3.  **Clean Code:** Transitioning from Express.js unstructured paradigms to Spring Boot's Model-Controller-Service-Repository organized layering.
+1. Connect your GitHub repository to [Railway.app](https://railway.app).
+2. Provision a PostgreSQL database add-on.
+3. Supply the following environment variables to your Spring Boot service:
+   - `DB_URL` = `jdbc:postgresql://${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/${{Postgres.PGDATABASE}}`
+   - `DB_USERNAME` = `${{Postgres.PGUSER}}`
+   - `DB_PASSWORD` = `${{Postgres.PGPASSWORD}}`
+   - `DDL_AUTO` = `update` *(Required to prevent PostgreSQL data loss on server pushes)*
 
-## 📝 License
-This project is for portfolio and educational purposes.
+---
+
+## 🗺️ Version 2.0 Architectural Roadmap
+While V1 achieves database lock integrity, hitting the physical disk for thousands of concurrent bids causes severe bottlenecks. V2 will introduce scale:
+1. **Redis Queueing:** Funnel the instantaneous HTTP firehose through a Redis Cache to rapidly batch-process optimistic lock acquisitions in memory.
+2. **JWT Refresh Tokens:** Implement a strict 15-minute Access Token paired with an `HttpOnly` cookie-stored Refresh Token.
+3. **Apache Kafka Event Streams:** Decouple the STOMP WebSocket broadcasts into an event stream to allow seamless horizontal pod scaling.

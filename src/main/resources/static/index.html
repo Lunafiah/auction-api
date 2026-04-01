@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚡ Lightning Bids V1</title>
+    <!-- SockJS and Stomp.js from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-dark: #09090b;
+            --panel-bg: rgba(24, 24, 27, 0.7);
+            --border: rgba(255, 255, 255, 0.08);
+            --text-main: #f4f4f5;
+            --text-muted: #a1a1aa;
+            --brand-primary: #3b82f6;
+            --brand-gold: #fbbf24;
+            --brand-red: #ef4444;
+            --brand-green: #10b981;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Space Grotesk', sans-serif;
+            background: radial-gradient(circle at 50% -20%, #1e1b4b 0%, var(--bg-dark) 50%);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        /* Glassmorphism Defaults */
+        .glass {
+            background: var(--panel-bg);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Authentication Panel */
+        #auth-panel {
+            width: 380px;
+            padding: 40px;
+            text-align: center;
+            animation: floatIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        #auth-panel h2 {
+            margin-top: 0;
+            font-weight: 700;
+            letter-spacing: -1px;
+            color: var(--brand-gold);
+        }
+
+        .input-group {
+            position: relative;
+            margin-bottom: 16px;
+        }
+        
+        input {
+            width: 100%;
+            padding: 14px 16px;
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: white;
+            font-family: 'Space Grotesk', sans-serif;
+            box-sizing: border-box;
+            transition: all 0.2s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: var(--brand-primary);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.15s;
+            margin-top: 8px;
+        }
+
+        .btn-auth {
+            background: var(--text-main);
+            color: var(--bg-dark);
+        }
+        
+        .btn-auth:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(255,255,255,0.2);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+        }
+        
+        .btn-secondary:hover {
+            color: white;
+            border-color: white;
+        }
+
+        /* Main Trading Desk Panel */
+        #auction-panel {
+            display: none;
+            width: 1000px;
+            height: 700px;
+            padding: 30px;
+            flex-direction: column;
+            gap: 20px;
+            animation: floatIn 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 20px;
+        }
+
+        .brand-logo {
+            font-weight: 700;
+            font-size: 20px;
+            color: var(--brand-gold);
+            letter-spacing: -0.5px;
+        }
+
+        .user-tag {
+            background: rgba(255,255,255,0.1);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+        }
+
+        .desk-grid {
+            display: grid;
+            grid-template-columns: 1fr 340px;
+            grid-template-rows: auto 1fr;
+            gap: 20px;
+            height: 100%;
+        }
+
+        /* Price Console */
+        .price-console {
+            background: rgba(0,0,0,0.4);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .price-console::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 2px;
+            background: linear-gradient(90deg, transparent, var(--brand-gold), transparent);
+            opacity: 0.5;
+        }
+
+        #item-title { font-size: 32px; font-weight: 700; margin: 0 0 8px 0; }
+        #item-desc { color: var(--text-muted); margin: 0 0 30px 0; font-size: 15px; }
+
+        .ticker {
+            font-family: 'JetBrains Mono', monospace;
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+        }
+
+        .currency { color: var(--brand-gold); font-size: 40px; }
+        .amount { 
+            font-size: 96px; 
+            font-weight: 700; 
+            text-shadow: 0 0 40px rgba(251, 191, 36, 0.2); 
+            transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .flash-win {
+            animation: textGlowSuccess 0.5s ease-out;
+        }
+        .flash-general {
+            animation: textGlowGeneral 0.5s ease-out;
+        }
+
+        .live-status {
+            position: absolute;
+            bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--brand-green);
+            letter-spacing: 1px;
+        }
+        
+        .dot {
+            width: 8px; height: 8px;
+            background: var(--brand-green);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--brand-green);
+        }
+        .blink { animation: blink 1s infinite alternate; }
+
+        /* Controls Panel */
+        .controls-console {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        .console-label {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--text-muted);
+            letter-spacing: 2px;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .btn-execute {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 16px;
+            border-radius: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        
+        .btn-execute:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+        .btn-execute:active { transform: scale(0.96); }
+
+        .btn-spam {
+            grid-column: span 2;
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.4);
+            color: var(--brand-red);
+        }
+        .btn-spam:hover { background: rgba(239, 68, 68, 0.2); box-shadow: 0 0 20px rgba(239,68,68,0.3); }
+
+        /* Terminal Log */
+        .log-console {
+            grid-column: span 2;
+            grid-row: 2;
+            background: rgba(0,0,0,0.6);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .log-line {
+            padding: 6px 10px;
+            border-radius: 4px;
+            background: rgba(255,255,255,0.02);
+            border-left: 2px solid transparent;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .log-time { color: var(--text-muted); }
+        .log-info { border-color: var(--brand-primary); color: #93c5fd; }
+        .log-win { border-color: var(--brand-green); color: #6ee7b7; background: rgba(16, 185, 129, 0.1); }
+        .log-error { border-color: var(--brand-red); color: #fca5a5; background: rgba(239, 68, 68, 0.1); }
+        .log-outbid { border-color: var(--brand-gold); color: #fcd34d; background: rgba(251, 191, 36, 0.1); }
+
+        /* Toasts */
+        #toast-zone {
+            position: fixed; top: 20px; right: 20px;
+            display: flex; flex-direction: column; gap: 10px; z-index: 9999;
+        }
+        
+        .toast {
+            min-width: 250px;
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            padding: 16px 20px;
+            border-radius: 12px;
+            font-weight: 600;
+            color: white;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            animation: slideLeft 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* Animations */
+        @keyframes floatIn { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+        @keyframes slideLeft { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes textGlowSuccess { 
+            0% { transform: scale(1); color: var(--text-main); }
+            50% { transform: scale(1.05); color: var(--brand-green); text-shadow: 0 0 50px rgba(16, 185, 129, 0.6); }
+            100% { transform: scale(1); color: var(--text-main); }
+        }
+        @keyframes textGlowGeneral {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); color: var(--brand-primary); text-shadow: 0 0 50px rgba(59, 130, 246, 0.6); }
+            100% { transform: scale(1); }
+        }
+        @keyframes blink { 0% { opacity: 0.4; } 100% { opacity: 1; } }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 6px; }
+    </style>
+</head>
+<body>
+
+    <!-- Toast Notifications -->
+    <div id="toast-zone"></div>
+
+    <!-- Auth Panel -->
+    <div class="glass" id="auth-panel">
+        <h2>System Login</h2>
+        <div class="input-group">
+            <input type="text" id="ipt-user" placeholder="Trader ID (Username)" autocomplete="off">
+        </div>
+        <div class="input-group">
+            <input type="password" id="ipt-pass" placeholder="Passkey" autocomplete="off">
+        </div>
+        <button class="btn btn-auth" onclick="authenticate('login')">Enter Trading Floor</button>
+        <button class="btn btn-secondary" onclick="authenticate('register')">Register New ID</button>
+    </div>
+
+    <!-- Main Dashboard -->
+    <div class="glass" id="auction-panel">
+        <div class="header">
+            <div class="brand-logo">⚡ LIGHTNING BIDS V1 <span style="font-size: 14px; font-weight:400; color:var(--text-muted); margin-left: 10px;">High-Frequency Execution Desk</span></div>
+            <div class="user-tag" id="display-user">@unknown</div>
+        </div>
+
+        <div class="desk-grid">
+            
+            <!-- Price Display Area -->
+            <div class="price-console">
+                <h1 id="item-title">Initializing Order Book...</h1>
+                <p id="item-desc">Connecting to matching engine...</p>
+                
+                <div class="ticker">
+                    <span class="currency">$</span>
+                    <span class="amount" id="current-bid">0</span>
+                </div>
+
+                <div class="live-status">
+                    <div class="dot blink"></div>
+                    <span>WEBSOCKET STATUS: CONNECTED (STOMP LATENCY <10ms)</span>
+                </div>
+            </div>
+
+            <!-- Execution Controls Area -->
+            <div class="controls-console">
+                <span class="console-label">EXECUTION PANEL (ONE-CLICK)</span>
+                <div class="btn-grid">
+                    <button class="btn-execute" onclick="executeBid(100)">+ $100</button>
+                    <button class="btn-execute" onclick="executeBid(500)">+ $500</button>
+                    <button class="btn-execute" onclick="executeBid(1000)">+ $1,000</button>
+                    <!-- The MASH Button for testing race conditions! -->
+                    <button class="btn-execute btn-spam" onclick="executeBid(10)">🚨 MASH BUTTON (+ $10)</button>
+                    <button class="btn-execute btn-spam" style="background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.4); color: var(--brand-primary);" onclick="stressTestLock(500)">🚀 STRESS TEST (Fire 50 Bids)</button>
+                </div>
+            </div>
+
+            <!-- Terminal Area -->
+            <div class="log-console" id="terminal">
+                <span class="console-label">MARKET EVENT LOG</span>
+                <!-- Logs appended here -->
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Application Logic -->
+    <script>
+        const API_BASE = 'http://localhost:8080';
+        let ACTIVE_AUCTION_ID = 1; // Default to the Rolex we seeded
+        
+        let jwtToken = '';
+        let myUsername = '';
+        let currentHighestBid = 0;
+        let stompClient = null;
+
+        // --- 1. Authenticaton Logic ---
+        async function authenticate(action) {
+            const u = document.getElementById('ipt-user').value.trim();
+            const p = document.getElementById('ipt-pass').value.trim();
+            
+            if (!u || !p) return createToast('Requires Trader ID and Passkey.', 'var(--brand-red)');
+
+            try {
+                const res = await fetch(`${API_BASE}/api/auth/${action}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: u, password: p })
+                });
+
+                if (!res.ok) throw new Error(action === 'login' ? 'Invalid credentials.' : 'Username already taken.');
+
+                const data = await res.json();
+                jwtToken = data.token;
+                myUsername = data.username;
+
+                document.getElementById('display-user').innerText = `ID: @${myUsername}`;
+                createToast('Authentication Accepted. Entering floor.', 'var(--brand-green)');
+                
+                // Swap views
+                document.getElementById('auth-panel').style.display = 'none';
+                document.getElementById('auction-panel').style.display = 'flex';
+
+                // Initialize Trading Desk
+                fetchAuctionState(ACTIVE_AUCTION_ID);
+
+            } catch (err) {
+                createToast(err.message, 'var(--brand-red)');
+            }
+        }
+
+        // --- 2. Initial State Fetch ---
+        async function fetchAuctionState(auctionId) {
+            logTerminal('Fetching real-time order book state...', 'info');
+            
+            const res = await fetch(`${API_BASE}/api/auctions/${auctionId}`, {
+                headers: { 'Authorization': `Bearer ${jwtToken}` }
+            });
+
+            const auction = await res.json();
+            
+            document.getElementById('item-title').innerText = auction.name;
+            document.getElementById('item-desc').innerText = auction.description;
+            
+            currentHighestBid = auction.currentHighestBid || auction.startingPrice;
+            document.getElementById('current-bid').innerText = currentHighestBid.toLocaleString();
+
+            connectWebSocket(auctionId);
+        }
+
+        // --- 3. STOMP WebSocket Connection ---
+        function connectWebSocket(auctionId) {
+            if (stompClient) stompClient.disconnect();
+
+            const socket = new SockJS(`${API_BASE}/ws`);
+            stompClient = Stomp.over(socket);
+            stompClient.debug = null; // Turns off noisy console logs
+
+            stompClient.connect({}, function (frame) {
+                logTerminal('Connected to STOMP Broker via SockJS.', 'info');
+                
+                stompClient.subscribe(`/topic/auctions/${auctionId}`, function (message) {
+                    const payload = JSON.parse(message.body);
+                    handleBroadcast(payload);
+                });
+            }, function (error) {
+                logTerminal('WebSocket connection lost! Check server.', 'error');
+            });
+        }
+
+        // --- 4. Real-time Broadcast Handler ---
+        function handleBroadcast(data) {
+            currentHighestBid = data.currentHighestBid;
+            const amountEl = document.getElementById('current-bid');
+            
+            // Update Text
+            amountEl.innerText = currentHighestBid.toLocaleString();
+
+            // Trigger Animation appropriately
+            amountEl.classList.remove('flash-win', 'flash-general');
+            void amountEl.offsetWidth; // Force CSS DOM reflow
+
+            if (data.highestBidder === myUsername) {
+                amountEl.classList.add('flash-win');
+                logTerminal(`EXECUTION CONFIRMED: You won the block at $${currentHighestBid.toLocaleString()}`, 'win');
+            } else {
+                amountEl.classList.add('flash-general');
+                logTerminal(`MARKET PULSE: Block snatched by @${data.highestBidder} at $${currentHighestBid.toLocaleString()}`, 'info');
+            }
+        }
+
+        // --- 5. Execution (Place Bid via HTTP) ---
+        async function executeBid(increment) {
+            // Prevent spamming empty/NaN logic
+            if(!currentHighestBid) return;
+
+            // Compute our aggressive bid
+            const proposedBid = currentHighestBid + increment;
+
+            // Send via standard POST route
+            const res = await fetch(`${API_BASE}/api/auctions/${ACTIVE_AUCTION_ID}/bid`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${jwtToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ amount: proposedBid })
+            });
+
+            // Parse the exact response payload from the backend
+            const responseData = await res.json();
+
+            // Dynmically display the literal message from the backend!
+            if (res.status === 409) {
+                createToast(responseData.message, 'var(--brand-gold)');
+                logTerminal(`SERVER REJECTION: ${responseData.message}`, 'outbid');
+            } else if (res.ok) {
+                // The STOMP WebSocket broadcast will fire and update the UI immediately!
+            } else {
+                createToast('Transaction invalid or server error.', 'var(--brand-red)');
+            }
+        }
+
+        // --- 6. Concurrency Stress Test ---
+        async function stressTestLock(increment) {
+            if(!currentHighestBid) return;
+            const proposedBid = currentHighestBid + increment;
+            
+            logTerminal(`\n🚀 FIRING 50 CONCURRENT BIDS FOR $${proposedBid.toLocaleString()}...`, 'info');
+            
+            const promises = [];
+            for(let i = 0; i < 50; i++) {
+                promises.push(
+                    fetch(`${API_BASE}/api/auctions/${ACTIVE_AUCTION_ID}/bid`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${jwtToken}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ amount: proposedBid })
+                    }).then(async res => {
+                        // Correctly handling the fetch() API's silent resolution of HTTP error codes!
+                        if (!res.ok) {
+                            const errData = await res.json().catch(() => ({}));
+                            throw new Error(errData.message || 'OPTIMISTIC LOCK REJECTION');
+                        }
+                        return res.json();
+                    }).catch(err => {
+                        // We catch the thrown error individually so Promise.all() doesn't fatally short-circuit 
+                        // and drop the other 49 network requests!
+                        logTerminal(`🚨 Error Caught: ${err.message}`, 'outbid');
+                        return { failed: true };
+                    })
+                );
+            }
+            
+            // Execute all 50 network calls precisely in parallel
+            const results = await Promise.all(promises);
+            
+            let wins = 0;
+            let locks = 0;
+            
+            results.forEach(r => {
+                if(r && !r.failed) wins++;
+                else locks++;
+            });
+            
+            logTerminal(`📊 STRESS TEST RESULTS:`, 'info');
+            logTerminal(`✅ ${wins} transaction(s) succeeded (Won the DB lock).`, 'win');
+            logTerminal(`💥 ${locks} transaction(s) intercepted & safely rejected!`, 'outbid');
+        }
+
+        // --- Utilities ---
+        function logTerminal(msg, typeClass) {
+            const tz = new Date().toISOString().substring(11, 23); // purely visual ms format
+            const term = document.getElementById('terminal');
+            
+            const line = document.createElement('div');
+            line.className = `log-line log-${typeClass}`;
+            line.innerHTML = `<span class="log-time">[${tz}]</span> <span>${msg}</span>`;
+            
+            term.appendChild(line);
+            term.scrollTop = term.scrollHeight; // auto-scroll to bottom
+        }
+
+        function createToast(msg, color) {
+            const container = document.getElementById('toast-zone');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.style.borderLeftColor = color;
+            toast.innerText = msg;
+            
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Allow Enter key on password to login
+        document.getElementById('ipt-pass').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') authenticate('login');
+        });
+    </script>
+</body>
+</html>

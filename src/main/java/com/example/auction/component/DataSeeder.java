@@ -26,7 +26,7 @@ public class DataSeeder implements CommandLineRunner {
             item1.setStartingPrice(new BigDecimal("5000.00"));
             item1.setCurrentHighestBid(null);
             item1.setHighestBidderId(null);
-            item1.setEndTime(LocalDateTime.now().plusHours(1));
+            item1.setEndTime(LocalDateTime.now().plusDays(365));
             // version defaults to 0 upon save
             auctionItemRepository.save(item1);
 
@@ -36,7 +36,7 @@ public class DataSeeder implements CommandLineRunner {
             item2.setStartingPrice(new BigDecimal("150000.00"));
             item2.setCurrentHighestBid(null);
             item2.setHighestBidderId(null);
-            item2.setEndTime(LocalDateTime.now().plusHours(2));
+            item2.setEndTime(LocalDateTime.now().plusDays(365));
             auctionItemRepository.save(item2);
 
             System.out.println("Seeded database with two active test Auction Items!");
