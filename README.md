@@ -1,16 +1,51 @@
 # ⚡ Lightning Bids V1 - Real-Time Auction Engine
 A high-performance, real-time auction bidding engine built with **Spring Boot 3**, **PostgreSQL**, and **STOMP WebSockets**.
 
-## 🏗️ Architecture & System Design
-This application is built using **Clean Architecture** (Controller-Service-Repository) and is explicitly engineered to handle extreme concurrency and prevent data-loss race collisions.
+### 💥 The Problem
+Traditional databases and legacy auction APIs struggle to maintain data consistency when hundreds of users submit bids at the exact same millisecond. These race conditions often lead to lost updates or illegal state transitions, making it very difficult to guarantee fairness and reliability at scale.
+
+### ✅ The Solution
+Built a real-time auction engine MVP explicitly engineered to handle extreme concurrency using Clean Architecture. Implemented strict PostgreSQL Optimistic Locking (`@Version`) to guarantee database isolation. When users submit conflicting bids, the engine securely catches `ObjectOptimisticLockingFailureException`, returning clean HTTP `409 Conflict` rejections, while the single successful transaction is instantly broadcasted over Spring STOMP WebSockets.
+
+### 📈 The Outcome
+Demonstrated zero-loss concurrency control for high-frequency transactions. The attached test dashboard actively proves that firing 50 simultaneous programmatic requests into the lock successfully processes 1 winner and instantly catches 49 rejections, avoiding race conditions entirely.
+
+---
+
+## 🏗️ Architecture Diagram
+
+```mermaid
+flowchart TD
+    C1[Client 1] -->|POST /bid| API[Spring Boot REST API]
+    C2[Client 2] -->|POST /bid| API
+    C3[Client 3] -->|POST /bid| API
+    
+    subgraph Backend
+    API
+    DB[(PostgreSQL)]
+    WS(STOMP WebSockets)
+    end
+    
+    API -->|Attempt DB Write| DB
+    DB -->|OptimisticLockingFailure| API
+    DB -->|Success / Write Lock| API
+    
+    API -.->|HTTP 409 Conflict| C2
+    API -.->|HTTP 409 Conflict| C3
+    
+    API -->|Broadcast 'Bid Successful'| WS
+    WS -.->|Update UI| C1
+    WS -.->|Update UI| C2
+    WS -.->|Update UI| C3
+```
+
 - **REST API:** Handles immutable state requests and authenticated order execution (`POST /api/auctions/{id}/bid`).
 - **Security:** Stateless **JWT authentication** managed universally via a custom Spring Security filter chain.
-- **Concurrency Control:** Utilizes strict **PostgreSQL Optimistic Locking (`@Version`)** to guarantee database isolation. If 1,000 users submit a bid at the exact same millisecond, 1 transaction securely commits while the backend physically intercepts the remaining 999, throwing a precise `ObjectOptimisticLockingFailureException` and returning clean HTTP `409 Conflict` rejections.
 - **Real-Time Engine:** Uses Spring **STOMP WebSockets** (`/ws`) natively functioning as a one-way megaphone to broadcast successful transactions instantly across all connected client nodes.
 
 ---
 
-## 🚀 Getting Started Locally
+## 🚀 Quick Start
 
 ### Prerequisites
 - Java 21+
@@ -49,8 +84,8 @@ This application supports seamless environment variable injection for CI/CD prod
 
 ---
 
-## 🗺️ Version 2.0 Architectural Roadmap
-While V1 achieves database lock integrity, hitting the physical disk for thousands of concurrent bids causes severe bottlenecks. V2 will introduce scale:
+## 🗺️ Future Roadmap
+While this MVP achieves database lock integrity, hitting the physical disk for thousands of concurrent bids causes severe bottlenecks. Here is what I plan to build next to help the product grow:
 1. **Redis Queueing:** Funnel the instantaneous HTTP firehose through a Redis Cache to rapidly batch-process optimistic lock acquisitions in memory.
 2. **JWT Refresh Tokens:** Implement a strict 15-minute Access Token paired with an `HttpOnly` cookie-stored Refresh Token.
 3. **Apache Kafka Event Streams:** Decouple the STOMP WebSocket broadcasts into an event stream to allow seamless horizontal pod scaling.
