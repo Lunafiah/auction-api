@@ -73,10 +73,11 @@ public class AuctionServiceTest {
 
         when(auctionItemRepository.findById(1L)).thenReturn(Optional.of(item));
         when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(user));
-        
+
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(redisTemplate.opsForList()).thenReturn(listOperations);
-        when(redisTemplate.execute(any(org.springframework.data.redis.core.script.RedisScript.class), anyList(), any())).thenReturn(1L);
+        when(redisTemplate.execute(any(org.springframework.data.redis.core.script.RedisScript.class), anyList(), any()))
+                .thenReturn(1L);
 
         BidResponse response = auctionService.placeBid(1L, request, "testuser");
 
@@ -93,9 +94,10 @@ public class AuctionServiceTest {
         request.setAmount(new BigDecimal("100"));
 
         when(auctionItemRepository.findById(1L)).thenReturn(Optional.of(item));
-        
+
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(redisTemplate.execute(any(org.springframework.data.redis.core.script.RedisScript.class), anyList(), any())).thenReturn(0L);
+        when(redisTemplate.execute(any(org.springframework.data.redis.core.script.RedisScript.class), anyList(), any()))
+                .thenReturn(0L);
         when(valueOperations.get("auction:1:highest_bid")).thenReturn("150");
 
         BidResponse response = auctionService.placeBid(1L, request, "testuser");
@@ -107,7 +109,7 @@ public class AuctionServiceTest {
     @Test
     void placeBid_ShouldReject_WhenAuctionHasEnded() {
         item.setEndTime(LocalDateTime.now().minusDays(1));
-        
+
         BidRequest request = new BidRequest();
         request.setAmount(new BigDecimal("200"));
 

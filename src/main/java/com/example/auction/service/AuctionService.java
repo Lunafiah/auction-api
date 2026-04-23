@@ -21,6 +21,9 @@ import java.util.List;
 /**
  * Service class for handling core auction and bidding logic.
  */
+/**
+ * Service class for handling core auction and bidding logic.
+ */
 @Service
 @Slf4j
 public class AuctionService {
@@ -32,10 +35,10 @@ public class AuctionService {
     private final org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
 
     public AuctionService(AuctionItemRepository auctionItemRepository,
-                          BidHistoryRepository bidHistoryRepository,
-                          UserRepository userRepository,
-                          SimpMessagingTemplate messagingTemplate,
-                          org.springframework.data.redis.core.StringRedisTemplate redisTemplate) {
+            BidHistoryRepository bidHistoryRepository,
+            UserRepository userRepository,
+            SimpMessagingTemplate messagingTemplate,
+            org.springframework.data.redis.core.StringRedisTemplate redisTemplate) {
         this.auctionItemRepository = auctionItemRepository;
         this.bidHistoryRepository = bidHistoryRepository;
         this.userRepository = userRepository;
@@ -48,7 +51,13 @@ public class AuctionService {
      *
      * @return List of AuctionItem.
      */
+    /**
+     * Retrieves all auction items.
+     *
+     * @return List of AuctionItem.
+     */
     public List<AuctionItem> getAllAuctions() {
+        log.debug("Retrieving all auction items");
         log.debug("Retrieving all auction items");
         return auctionItemRepository.findAll();
     }
@@ -60,9 +69,21 @@ public class AuctionService {
      * @return The AuctionItem.
      * @throws RuntimeException if the item is not found.
      */
+    /**
+     * Retrieves a specific auction item by its ID.
+     *
+     * @param id The ID of the auction item.
+     * @return The AuctionItem.
+     * @throws RuntimeException if the item is not found.
+     */
     public AuctionItem getAuctionById(Long id) {
         log.debug("Retrieving auction item with ID: {}", id);
+        log.debug("Retrieving auction item with ID: {}", id);
         return auctionItemRepository.findById(id)
+                .orElseThrow(() -> {
+                    log.error("Auction item with ID: {} not found", id);
+                    return new RuntimeException("Auction item not found");
+                });
                 .orElseThrow(() -> {
                     log.error("Auction item with ID: {} not found", id);
                     return new RuntimeException("Auction item not found");
@@ -82,14 +103,20 @@ public class AuctionService {
     @Transactional(readOnly = true)
     public BidResponse placeBid(Long auctionId, BidRequest bidRequest, String username) {
         log.info("Attempting to place a bid of {} by user '{}' on auction ID: {}", bidRequest.getAmount(), username, auctionId);
+        log.info("Attempting to place a bid of {} by user '{}' on auction ID: {}", bidRequest.getAmount(), username, auctionId);
 
         AuctionItem item = auctionItemRepository.findById(auctionId)
                 .orElseThrow(() -> {
                     log.error("Auction item with ID: {} not found during bid placement", auctionId);
                     return new RuntimeException("Auction item not found");
                 });
+                .orElseThrow(() -> {
+                    log.error("Auction item with ID: {} not found during bid placement", auctionId);
+                    return new RuntimeException("Auction item not found");
+                });
 
         if (item.getEndTime().isBefore(LocalDateTime.now())) {
+            log.warn("Bid rejected for auction ID: {}. Reason: Auction has ended", auctionId);
             log.warn("Bid rejected for auction ID: {}. Reason: Auction has ended", auctionId);
             return new BidResponse("REJECTED", "Auction has ended", auctionId, 
                     item.getCurrentHighestBid(), null);
