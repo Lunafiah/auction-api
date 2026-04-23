@@ -8,7 +8,7 @@ Traditional databases and legacy auction APIs struggle to maintain data consiste
 Built a real-time auction engine MVP explicitly engineered to handle extreme concurrency using Clean Architecture. Implemented strict PostgreSQL Optimistic Locking (`@Version`) to guarantee database isolation. When users submit conflicting bids, the engine securely catches `ObjectOptimisticLockingFailureException`, returning clean HTTP `409 Conflict` rejections, while the single successful transaction is instantly broadcasted over Spring STOMP WebSockets.
 
 ### 📈 The Outcome
-Demonstrated zero-loss concurrency control for high-frequency transactions. The attached test dashboard actively proves that firing 50 simultaneous programmatic requests into the lock successfully processes 1 winner and instantly catches 49 rejections, avoiding race conditions entirely.
+Demonstrated zero-loss concurrency control for high-frequency transactions. By utilizing a **k6** load-testing container orchestrated via Docker Compose, the API was rigorously benchmarked. The test bombards the bidding endpoint with varying loads (ramping up to 100+ concurrent virtual users), actively proving that the optimistic locking mechanism successfully processes the winning bids and correctly rejects conflicts without any race conditions or data loss.
 
 ---
 
@@ -68,6 +68,14 @@ mvn spring-boot:run
 Navigate to `http://localhost:8080` to access the vanilla JS/CSS **High-Frequency Execution Desk**. 
 
 Register a quick test account, select the active auction, and click the **🚀 STRESS TEST** button to forcefully fire 50 concurrent fetch requests into the exact same millisecond window. The local UI terminal will tally the precise number of transactions that successfully won the underlying lock vs those intercepted by the database engine.
+
+### 4. Advanced Load Testing with k6
+To truly benchmark the system beyond the frontend simulation, we use a dedicated **k6** container orchestrated via Docker Compose.
+
+```bash
+docker-compose run --rm k6
+```
+This will launch a rigorous load test ramping up to 100+ virtual concurrent users attempting to authenticate and place simultaneous bids, demonstrating robust optimistic locking resilience under intense traffic.
 
 ---
 
