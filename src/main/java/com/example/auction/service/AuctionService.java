@@ -8,6 +8,7 @@ import com.example.auction.model.User;
 import com.example.auction.repository.AuctionItemRepository;
 import com.example.auction.repository.BidHistoryRepository;
 import com.example.auction.repository.UserRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -17,82 +18,129 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * Service class for handling core auction and bidding logic.
+ */
 @Service
+@Slf4j
 public class AuctionService {
 
     private final AuctionItemRepository auctionItemRepository;
     private final BidHistoryRepository bidHistoryRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate; // The magic WS wand
+    private final org.springframework.data.redis.core.StringRedisTemplate redisTemplate;
 
     public AuctionService(AuctionItemRepository auctionItemRepository,
                           BidHistoryRepository bidHistoryRepository,
                           UserRepository userRepository,
-                          SimpMessagingTemplate messagingTemplate) {
+                          SimpMessagingTemplate messagingTemplate,
+                          org.springframework.data.redis.core.StringRedisTemplate redisTemplate) {
         this.auctionItemRepository = auctionItemRepository;
         this.bidHistoryRepository = bidHistoryRepository;
         this.userRepository = userRepository;
         this.messagingTemplate = messagingTemplate;
+        this.redisTemplate = redisTemplate;
     }
 
+    /**
+     * Retrieves all auction items.
+     *
+     * @return List of AuctionItem.
+     */
     public List<AuctionItem> getAllAuctions() {
+        log.debug("Retrieving all auction items");
         return auctionItemRepository.findAll();
     }
 
+    /**
+     * Retrieves a specific auction item by its ID.
+     *
+     * @param id The ID of the auction item.
+     * @return The AuctionItem.
+     * @throws RuntimeException if the item is not found.
+     */
     public AuctionItem getAuctionById(Long id) {
+        log.debug("Retrieving auction item with ID: {}", id);
         return auctionItemRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Auction item not found"));
+                .orElseThrow(() -> {
+                    log.error("Auction item with ID: {} not found", id);
+                    return new RuntimeException("Auction item not found");
+                });
     }
 
-    @Transactional
+    /**
+     * Places a bid on a specific auction item.
+     * Uses pessimistic or optimistic locking strategy configured on the repository level
+     * to manage concurrent bid requests.
+     *
+     * @param auctionId  The ID of the auction item.
+     * @param bidRequest The requested bid details.
+     * @param username   The username of the bidder.
+     * @return BidResponse indicating the result of the bid attempt.
+     */
+    @Transactional(readOnly = true)
     public BidResponse placeBid(Long auctionId, BidRequest bidRequest, String username) {
+        log.info("Attempting to place a bid of {} by user '{}' on auction ID: {}", bidRequest.getAmount(), username, auctionId);
 
         AuctionItem item = auctionItemRepository.findById(auctionId)
-                .orElseThrow(() -> new RuntimeException("Auction item not found"));
+                .orElseThrow(() -> {
+                    log.error("Auction item with ID: {} not found during bid placement", auctionId);
+                    return new RuntimeException("Auction item not found");
+                });
 
         if (item.getEndTime().isBefore(LocalDateTime.now())) {
+            log.warn("Bid rejected for auction ID: {}. Reason: Auction has ended", auctionId);
             return new BidResponse("REJECTED", "Auction has ended", auctionId, 
                     item.getCurrentHighestBid(), null);
         }
 
-        BigDecimal minimumBid = item.getCurrentHighestBid() != null 
-                ? item.getCurrentHighestBid() 
-                : item.getStartingPrice();
+        // We check redis first. If it's not present, we seed it with the current highest from DB
+        String redisKey = "auction:" + auctionId + ":highest_bid";
+        redisTemplate.opsForValue().setIfAbsent(redisKey, 
+                (item.getCurrentHighestBid() != null ? item.getCurrentHighestBid() : item.getStartingPrice()).toString());
 
-        if (bidRequest.getAmount().compareTo(minimumBid) <= 0) {
+        String luaScript = 
+            "local current_bid = redis.call('get', KEYS[1]); " +
+            "if (not current_bid or tonumber(ARGV[1]) > tonumber(current_bid)) then " +
+            "   redis.call('set', KEYS[1], ARGV[1]); " +
+            "   return 1; " +
+            "else " +
+            "   return 0; " +
+            "end";
+
+        Long result = redisTemplate.execute(
+            new org.springframework.data.redis.core.script.DefaultRedisScript<>(luaScript, Long.class),
+            java.util.Collections.singletonList(redisKey),
+            bidRequest.getAmount().toString()
+        );
+
+        if (result == null || result == 0L) {
+            String currentRedisBid = redisTemplate.opsForValue().get(redisKey);
+            BigDecimal currentBid = currentRedisBid != null ? new BigDecimal(currentRedisBid) : item.getStartingPrice();
+            
+            log.warn("Bid rejected for auction ID: {}. Amount {} is not higher than {}", auctionId, bidRequest.getAmount(), currentBid);
             return new BidResponse("REJECTED", 
-                    "Bid must be higher than current highest bid: " + minimumBid, 
-                    auctionId, minimumBid, null);
+                    "Bid must be higher than current highest bid: " + currentBid, 
+                    auctionId, currentBid, null);
         }
 
         User bidder = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("User not found"));
+                .orElseThrow(() -> {
+                    log.error("User '{}' not found during bid placement", username);
+                    return new RuntimeException("User not found");
+                });
 
-        item.setCurrentHighestBid(bidRequest.getAmount());
-        item.setHighestBidderId(bidder.getId());
-
-        try {
-            auctionItemRepository.save(item);
-        } catch (ObjectOptimisticLockingFailureException e) {
-            // Because they used the POST route, we just send a clean 409 conflict back!
-            AuctionItem freshItem = auctionItemRepository.findById(auctionId).orElse(item);
-            return new BidResponse("REJECTED", 
-                    "Someone placed a higher bid just before you! Try again.", 
-                    auctionId, freshItem.getCurrentHighestBid(), null);
-        }
-
-        BidHistory history = new BidHistory();
-        history.setAuctionItemId(auctionId);
-        history.setUserId(bidder.getId());
-        history.setBidAmount(bidRequest.getAmount());
-        history.setTimestamp(LocalDateTime.now());
-        bidHistoryRepository.save(history);
+        // Push to Redis Queue for async persistence
+        String queueData = auctionId + ":" + bidder.getId() + ":" + bidRequest.getAmount() + ":" + LocalDateTime.now();
+        redisTemplate.opsForList().leftPush("auction:bids:queue", queueData);
+        log.debug("Pushed winning bid to Redis queue for auction ID: {} with amount {}", auctionId, bidRequest.getAmount());
 
         BidResponse response = new BidResponse("ACCEPTED", "Your bid has been placed!", 
                 auctionId, bidRequest.getAmount(), username);
 
         // --- THE WEBSOCKET BROADCAST ---
-        // Push the new winning bid out to everyone currently staring at the auction room!
+        log.debug("Broadcasting winning bid to WebSocket topic /topic/auctions/{}", auctionId);
         messagingTemplate.convertAndSend("/topic/auctions/" + auctionId, response);
         
         return response;

@@ -13,5 +13,25 @@ services:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    container_name: auction-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  k6:
+    image: grafana/k6:latest
+    container_name: auction-k6
+    volumes:
+      - ./load-test:/load-test
+    command: run /load-test/script.js
+    depends_on:
+      - postgres
+    environment:
+      - BASE_URL=http://host.docker.internal:8080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   pgdata:
